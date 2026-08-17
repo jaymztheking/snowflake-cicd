@@ -125,11 +125,11 @@ terraform plan   # requires the SNOWFLAKE_* env vars set locally
 
 ## Backstage (self-service front end)
 
-`backstage/` is a standard Backstage app with a `snowflake-request` software
-template that fills in a request YAML from a form and opens the PR for you via the
-built-in `publish:github:pull-request` scaffolder action. See
-[backstage/README.md](backstage/README.md) for setup — it runs locally
-(`npm run dev` / `yarn dev`) with no hosting cost.
+`backstage/` is a standard Backstage app (via `@backstage/create-app`) with a
+`snowflake-request` software template that fills in a request YAML from a form and
+opens the PR for you via the built-in `publish:github:pull-request` scaffolder
+action. See [backstage/README.md](backstage/README.md) for setup — it runs locally
+(`yarn start`) with no hosting cost.
 
 ## Cost
 

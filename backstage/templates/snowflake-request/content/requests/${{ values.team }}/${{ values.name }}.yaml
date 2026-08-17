@@ -1,0 +1,24 @@
+team: ${{ values.team }}
+name: ${{ values.name }}
+
+database:
+  name: ${{ values.databaseName }}
+  comment: "${{ values.databaseComment }}"
+
+warehouse:
+  name: ${{ values.warehouseName }}
+  size: ${{ values.warehouseSize }}
+  auto_suspend: 60
+  auto_resume: true
+
+database_role:
+  name: ${{ values.databaseRoleName }}
+  grants:
+    - privilege: USAGE
+      on: DATABASE
+    - privilege: CREATE SCHEMA
+      on: DATABASE
+
+functional_role:
+  name: ${{ values.functionalRoleName }}
+  warehouse_usage: true

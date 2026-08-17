@@ -1,0 +1,115 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: snowflake-request
+  title: Snowflake Provisioning Request
+  description: >-
+    Opens a pull request that provisions a Snowflake database, warehouse,
+    database role, and functional role.
+  tags:
+    - snowflake
+    - infrastructure
+spec:
+  owner: user:guest
+  type: resource
+
+  parameters:
+    - title: Request identity
+      required:
+        - team
+        - name
+      properties:
+        team:
+          title: Team
+          type: string
+          description: Lowercase, hyphen-separated. Used as the requests/<team>/ folder.
+          pattern: '^[a-z][a-z0-9-]*$'
+          ui:autofocus: true
+        name:
+          title: Request name
+          type: string
+          description: Lowercase, hyphen-separated. Used as the file name.
+          pattern: '^[a-z][a-z0-9-]*$'
+
+    - title: Snowflake objects
+      required:
+        - databaseName
+        - warehouseName
+        - databaseRoleName
+        - functionalRoleName
+      properties:
+        databaseName:
+          title: Database name
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        databaseComment:
+          title: Database comment
+          type: string
+        warehouseName:
+          title: Warehouse name
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        warehouseSize:
+          title: Warehouse size
+          type: string
+          default: XSMALL
+          enum:
+            - XSMALL
+            - SMALL
+            - MEDIUM
+            - LARGE
+        databaseRoleName:
+          title: Database role name
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+        functionalRoleName:
+          title: Functional role name
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]*$'
+
+    - title: Target repository
+      required:
+        - repoUrl
+      properties:
+        repoUrl:
+          title: Repository
+          type: string
+          description: The snowflake-cicd repo this request PR should be opened against.
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+
+  steps:
+    - id: fetch
+      name: Render request YAML
+      action: fetch:template
+      input:
+        url: ./content
+        values:
+          team: ${{ parameters.team }}
+          name: ${{ parameters.name }}
+          databaseName: ${{ parameters.databaseName }}
+          databaseComment: ${{ parameters.databaseComment }}
+          warehouseName: ${{ parameters.warehouseName }}
+          warehouseSize: ${{ parameters.warehouseSize }}
+          databaseRoleName: ${{ parameters.databaseRoleName }}
+          functionalRoleName: ${{ parameters.functionalRoleName }}
+
+    - id: publish
+      name: Open pull request
+      action: publish:github:pull-request
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        branchName: request/${{ parameters.team }}-${{ parameters.name }}
+        title: 'Snowflake request: ${{ parameters.team }}/${{ parameters.name }}'
+        description: |
+          Provisioning request opened via Backstage for team `${{ parameters.team }}`.
+
+          This adds `requests/${{ parameters.team }}/${{ parameters.name }}.yaml`,
+          which the Terraform Plan workflow will comment a plan on shortly.
+
+  output:
+    links:
+      - title: Pull Request
+        url: ${{ steps.publish.output.remoteUrl }}
