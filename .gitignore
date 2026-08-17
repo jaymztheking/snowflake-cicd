@@ -1,0 +1,12 @@
+# Terraform local working files (not the committed state — that's intentional)
+terraform/.terraform/
+*.tfplan
+*.tfplan.json
+crash.log
+crash.*.log
+
+# Backstage
+backstage/node_modules/
+backstage/**/dist/
+backstage/**/dist-types/
+backstage/.env

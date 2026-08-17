@@ -1,0 +1,33 @@
+# Schema for a Snowflake provisioning request. Each file under requests/**
+# describes one bundle: a database, a warehouse, a database role scoped to
+# that database, and a functional (account-level) role that gets the
+# database role plus USAGE on the warehouse.
+#
+# Copy this file to requests/<your-team>/<name>.yaml, edit the values below,
+# and open a pull request. The plan workflow will comment the Terraform plan
+# on your PR; merging applies it (after reviewer approval).
+
+team: example-team
+name: example
+
+database:
+  name: EXAMPLE_DB
+  comment: "Example team database"
+
+warehouse:
+  name: EXAMPLE_WH
+  size: XSMALL          # keep this small to minimize credit usage
+  auto_suspend: 60
+  auto_resume: true
+
+database_role:
+  name: EXAMPLE_DB_ROLE
+  grants:
+    - privilege: USAGE
+      on: DATABASE
+    - privilege: CREATE SCHEMA
+      on: DATABASE
+
+functional_role:
+  name: EXAMPLE_FUNCTIONAL_ROLE
+  warehouse_usage: true
