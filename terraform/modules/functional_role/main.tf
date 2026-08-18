@@ -3,7 +3,7 @@ resource "snowflake_account_role" "this" {
 }
 
 resource "snowflake_grant_database_role" "this" {
-  for_each = toset(var.database_role_fqns)
+  for_each = { for idx, fqn in var.database_role_fqns : idx => fqn }
 
   database_role_name = each.value
   parent_role_name   = snowflake_account_role.this.name

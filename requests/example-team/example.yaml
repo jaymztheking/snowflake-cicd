@@ -23,10 +23,11 @@ warehouse:
 database_role:
   name: EXAMPLE_DB_ROLE
   grants:
+    # "on" must stay quoted -- unquoted, YAML 1.1 parses it as boolean true, not the string "on".
     - privilege: USAGE
-      on: DATABASE
+      "on": DATABASE
     - privilege: CREATE SCHEMA
-      on: DATABASE
+      "on": DATABASE
 
 functional_role:
   name: EXAMPLE_FUNCTIONAL_ROLE
