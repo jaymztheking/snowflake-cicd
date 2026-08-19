@@ -27,6 +27,11 @@ locals {
 resource "aws_s3_bucket" "landing" {
   bucket = local.bucket_name
   tags   = var.tags
+
+  # Without this, destroying a request whose bucket still holds objects fails with
+  # BucketNotEmpty. Note the value is read from state at destroy time, so it must be
+  # applied before the destroy, not alongside it.
+  force_destroy = var.force_destroy
 }
 
 resource "aws_s3_bucket_public_access_block" "landing" {

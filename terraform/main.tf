@@ -60,6 +60,7 @@ module "snowpipe" {
   bucket_prefix = each.value.snowpipe.bucket_prefix
   path          = try(each.value.snowpipe.path, "")
   iam_role_name = each.value.snowpipe.iam_role_name
+  force_destroy = try(each.value.snowpipe.force_destroy, false)
   file_format   = try(each.value.snowpipe.file_format, "JSON")
 
   schema_name   = each.value.snowpipe.schema.name
