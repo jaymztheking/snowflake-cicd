@@ -205,16 +205,68 @@ gh api repos/<owner>/snowflake-cicd --jq '{repo_id: .id, owner_id: .owner.id}'
 If a run still fails to assume the role, CloudTrail's `AssumeRoleWithWebIdentity` event
 shows the exact `sub` GitHub sent, which is the fastest way to see what to match.
 
-Attach a permissions policy allowing the role to manage the resources this repo creates:
-`s3:CreateBucket`, `s3:DeleteBucket`, `s3:Get*`/`s3:Put*` on bucket configuration and
-notifications, plus `iam:CreateRole`, `iam:DeleteRole`, `iam:GetRole`, `iam:UpdateAssumeRolePolicy`,
-`iam:PutRolePolicy`, `iam:DeleteRolePolicy`, `iam:GetRolePolicy`, `iam:TagRole`, and
-`sts:GetCallerIdentity`. Scope it to your naming convention rather than `Resource: "*"`
-if you can.
+Attach this permissions policy. It covers the full create **and destroy** paths for
+everything this repo provisions, and every action below was verified with
+`aws iam simulate-principal-policy` against a real apply and destroy:
 
-The role also needs `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` on
-`arn:aws:s3:::<your-state-bucket>/*` plus `s3:ListBucket` on the bucket itself, so it can
-read and lock state.
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Buckets",
+      "Effect": "Allow",
+      "Action": ["s3:CreateBucket", "s3:DeleteBucket", "s3:Get*", "s3:List*", "s3:Put*"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SnowflakeRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy", "iam:ListRolePolicies",
+        "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies",
+        "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags",
+        "iam:ListInstanceProfilesForRole", "iam:RemoveRoleFromInstanceProfile"
+      ],
+      "Resource": "arn:aws:iam::<account-id>:role/SNOWFLAKE_*"
+    },
+    {
+      "Sid": "Identity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "TerraformState",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::<your-state-bucket>/*"
+    },
+    {
+      "Sid": "TerraformStateBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<your-state-bucket>"
+    }
+  ]
+}
+```
+
+Three of these are non-obvious and each one cost a failed pipeline run to find:
+
+- **`s3:List*`** — `s3:ListBucket` backs `HeadBucket`, which the AWS provider polls to confirm
+  a new bucket is ready. It is **not** covered by `s3:Get*`. Without it `aws_s3_bucket` hangs
+  for ~20 minutes on a bucket that plainly exists, then times out.
+- **`iam:ListRolePolicies` / `iam:ListAttachedRolePolicies`** — the `aws_iam_role` *read* path
+  populates computed attributes with these. Creating a role works without them; the next plan
+  fails on refresh.
+- **`iam:ListInstanceProfilesForRole`** — the *delete* path calls this to detach instance
+  profiles first. Everything works until you try to tear a request down.
+
+`s3:DeleteObject` on the state bucket is what releases the lock. Omit it and applies succeed
+but leave a stale lock, so the *next* run fails instead of the one that caused it.
 
 ### 3. GitHub: add secrets and variables
 

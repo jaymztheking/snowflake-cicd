@@ -1,7 +1,8 @@
 # Handoff — Snowpipe provisioning
 
-**Status:** Feature complete and proven end to end. The `product-team/projectx` request is
-being decommissioned to avoid standing cost — see *Teardown in progress* below.
+**Status:** Feature complete, proven end to end, and torn down. `terraform state list` is
+empty — no provisioned resources remain in AWS or Snowflake. The repo is ready for the next
+request YAML.
 
 ## What was built
 
@@ -23,20 +24,20 @@ A file dropped at `s3://projectx-landing-.../raw/sample.json` was ingested by
 - **The approval gate.** Applies park at `waiting` and require a reviewer click.
 - OIDC auth with GitHub's immutable-ID subject format; S3 backend with native locking.
 
-## Teardown in progress
+## Teardown (complete)
 
-Branch `chore/teardown-projectx` (PR open) removes `requests/product-team/projectx.yaml`.
-`for_each` drops the key, so the plan destroys all 14 Snowpipe resources plus the database,
-warehouse, and roles. The landing bucket was emptied by hand first.
+PR #7 removed `requests/product-team/projectx.yaml`; `for_each` dropped the key and all 23
+resources were destroyed across both providers. The landing bucket was emptied by hand first,
+since `force_destroy` is read from state at destroy time and so can't be added in the same PR
+that triggers the destroy.
 
-Same PR adds an opt-in `force_destroy` variable to the snowpipe module (default `false`) so
-future teardowns don't wedge on `BucketNotEmpty`. Note it does **not** help this teardown —
-`force_destroy` is read from state at destroy time, so it must be applied *before* the
-destroy, not in the same PR.
+The destroy path is now proven, but it took two runs — the first failed on a missing
+`iam:ListInstanceProfilesForRole`. See *Gotchas*.
 
-### After the teardown applies
+An opt-in `force_destroy` variable (default `false`) is now on the snowpipe module for future
+requests.
 
-Nothing is left with a standing cost. What survives, all free or negligible:
+### What survives — all free or negligible
 
 - State bucket `snowflake-cicd-tfstate-8681d5e4` (~15KB, versioned)
 - IAM role `CICD_Terraform`, the GitHub OIDC provider
@@ -49,7 +50,6 @@ To rebuild, drop a new YAML into `requests/<team>/<name>.yaml` and open a PR.
 
 - **Backstage template** — parses and is structurally correct, but has never been rendered by
   a real scaffolder. Run one request through the form before trusting it.
-- **Destroy path** — being exercised for the first time by this teardown.
 - Only `file_format: JSON` has been used; CSV and PARQUET are untested.
 - Only the default single-`VARIANT` table; explicit `columns:` untested.
 
@@ -65,6 +65,11 @@ To rebuild, drop a new YAML into `requests/<team>/<name>.yaml` and open a PR.
 
 ## Gotchas learned the hard way
 
+- **The CI role needs create *and* destroy permissions, and they differ.** Three separate
+  pipeline failures came from an incomplete IAM list: `iam:ListRolePolicies` (read path),
+  `s3:ListBucket` (create path), `iam:ListInstanceProfilesForRole` (delete path). The README
+  now carries the full verified policy. Derive actions from each resource's whole CRUD
+  surface and simulate them — don't add them as failures appear.
 - **`s3:ListBucket` is not covered by `s3:Get*`.** Without it `aws_s3_bucket` hangs ~20min on
   the provider's `HeadBucket` readiness poll while the bucket plainly exists. Fixed on the CI
   role by adding `s3:List*`.
