@@ -73,6 +73,12 @@ variable "comment" {
   default     = null
 }
 
+variable "force_destroy" {
+  description = "Allow terraform destroy to delete the landing bucket even when it still holds objects. Defaults to false so a bucket holding real data cannot be emptied by accident; set true for throwaway/POC requests."
+  type        = bool
+  default     = false
+}
+
 variable "iam_propagation_delay" {
   description = "How long to wait after writing the IAM trust policy before creating the pipe, so the cross-account role is assumable. See time_sleep.iam_propagation in main.tf."
   type        = string

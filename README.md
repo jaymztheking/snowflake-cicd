@@ -71,6 +71,7 @@ snowpipe:
   path: raw/                        # key prefix Snowpipe watches; omit for the whole bucket
   iam_role_name: SNOWFLAKE_ANALYTICS_ROLE
   file_format: JSON                 # JSON | CSV | PARQUET
+  force_destroy: false              # true lets `destroy` delete a landing bucket that still holds objects
   schema:
     name: RAW
   table:
@@ -269,6 +270,19 @@ fastest check that a request YAML and the module wiring are sound.
 opens the PR for you via the built-in `publish:github:pull-request` scaffolder
 action. See [backstage/README.md](backstage/README.md) for setup — it runs locally
 (`yarn start`) with no hosting cost.
+
+## Decommissioning a request
+
+Delete the request's YAML file and open a PR. `for_each` drops the key, so the plan shows
+every object for that request being destroyed — database, warehouse, roles, and the whole
+Snowpipe path. Merge and approve to tear it down. Removing just the `snowpipe:` block
+destroys only the ingest path and leaves the base objects.
+
+**Empty the landing bucket first** unless the request was created with
+`force_destroy: true`. The bucket's `force_destroy` setting is read from Terraform state at
+destroy time, so adding the flag in the same PR that deletes the request is too late — the
+destroy fails with `BucketNotEmpty`. Either apply `force_destroy: true` in an earlier PR, or
+just `aws s3 rm s3://<bucket> --recursive` before merging.
 
 ## Verifying a Snowpipe request
 
