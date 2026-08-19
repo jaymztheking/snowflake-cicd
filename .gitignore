@@ -1,5 +1,6 @@
-# Terraform local working files (not the committed state — that's intentional)
+# Terraform local working files
 terraform/.terraform/
+terraform/backend.hcl
 *.tfplan
 *.tfplan.json
 crash.log

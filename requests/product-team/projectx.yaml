@@ -23,3 +23,24 @@ database_role:
 functional_role:
   name: PROJECTX_FUNCTIONAL_ROLE
   warehouse_usage: true
+
+# Optional. Omit this whole block for a request with no ingest path.
+snowpipe:
+  bucket_prefix: projectx-landing   # bucket becomes <prefix>-<aws account id>
+  path: raw/                        # key prefix Snowpipe watches; omit to watch the whole bucket
+  iam_role_name: SNOWFLAKE_PROJECTX_ROLE
+  file_format: JSON                 # JSON | CSV | PARQUET
+  schema:
+    name: RAW
+  table:
+    name: EVENTS
+    # columns is optional -- omitted, the table gets a single VARIANT column named RAW.
+    # columns:
+    #   - name: EVENT_ID
+    #     type: VARCHAR
+    #   - name: PAYLOAD
+    #     type: VARIANT
+  stage:
+    name: EVENTS_STAGE
+  pipe:
+    name: EVENTS_PIPE
