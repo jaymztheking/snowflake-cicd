@@ -5,7 +5,8 @@ metadata:
   title: Snowflake Provisioning Request
   description: >-
     Opens a pull request that provisions a Snowflake database, warehouse,
-    database role, and functional role.
+    database role, and functional role, plus an optional S3 -> Snowpipe
+    ingest path.
   tags:
     - snowflake
     - infrastructure
@@ -67,6 +68,72 @@ spec:
           type: string
           pattern: '^[A-Z][A-Z0-9_]*$'
 
+    - title: Snowpipe ingest (optional)
+      properties:
+        enableSnowpipe:
+          title: Provision an S3 -> Snowpipe ingest path
+          type: boolean
+          default: false
+      dependencies:
+        enableSnowpipe:
+          allOf:
+            - if:
+                properties:
+                  enableSnowpipe:
+                    const: true
+              then:
+                required:
+                  - bucketPrefix
+                  - iamRoleName
+                  - schemaName
+                  - tableName
+                  - stageName
+                  - pipeName
+                properties:
+                  bucketPrefix:
+                    title: S3 bucket prefix
+                    type: string
+                    description: >-
+                      The AWS account ID is appended to make the bucket name globally
+                      unique, e.g. "projectx-landing" becomes
+                      "projectx-landing-123456789012".
+                    pattern: '^[a-z0-9][a-z0-9-]*$'
+                  s3Path:
+                    title: Key prefix
+                    type: string
+                    description: Prefix inside the bucket that Snowpipe watches. Leave blank for the whole bucket.
+                    default: raw/
+                  iamRoleName:
+                    title: IAM role name
+                    type: string
+                    description: IAM role Snowflake assumes to read the bucket.
+                    pattern: '^[A-Za-z0-9_+=,.@-]+$'
+                  fileFormat:
+                    title: File format
+                    type: string
+                    default: JSON
+                    enum:
+                      - JSON
+                      - CSV
+                      - PARQUET
+                  schemaName:
+                    title: Schema name
+                    type: string
+                    pattern: '^[A-Z][A-Z0-9_]*$'
+                  tableName:
+                    title: Landing table name
+                    type: string
+                    description: Created with a single VARIANT column named RAW. Edit the YAML in the PR for a typed table.
+                    pattern: '^[A-Z][A-Z0-9_]*$'
+                  stageName:
+                    title: Stage name
+                    type: string
+                    pattern: '^[A-Z][A-Z0-9_]*$'
+                  pipeName:
+                    title: Pipe name
+                    type: string
+                    pattern: '^[A-Z][A-Z0-9_]*$'
+
     - title: Target repository
       required:
         - repoUrl
@@ -95,6 +162,15 @@ spec:
           warehouseSize: ${{ parameters.warehouseSize }}
           databaseRoleName: ${{ parameters.databaseRoleName }}
           functionalRoleName: ${{ parameters.functionalRoleName }}
+          enableSnowpipe: ${{ parameters.enableSnowpipe }}
+          bucketPrefix: ${{ parameters.bucketPrefix }}
+          s3Path: ${{ parameters.s3Path }}
+          iamRoleName: ${{ parameters.iamRoleName }}
+          fileFormat: ${{ parameters.fileFormat }}
+          schemaName: ${{ parameters.schemaName }}
+          tableName: ${{ parameters.tableName }}
+          stageName: ${{ parameters.stageName }}
+          pipeName: ${{ parameters.pipeName }}
 
     - id: publish
       name: Open pull request

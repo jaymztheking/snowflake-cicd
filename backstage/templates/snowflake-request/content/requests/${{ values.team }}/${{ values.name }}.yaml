@@ -14,11 +14,27 @@ warehouse:
 database_role:
   name: ${{ values.databaseRoleName }}
   grants:
+    # "on" must stay quoted -- unquoted, YAML 1.1 parses it as boolean true, not the string "on".
     - privilege: USAGE
-      on: DATABASE
+      "on": DATABASE
     - privilege: CREATE SCHEMA
-      on: DATABASE
+      "on": DATABASE
 
 functional_role:
   name: ${{ values.functionalRoleName }}
   warehouse_usage: true
+{% if values.enableSnowpipe %}
+snowpipe:
+  bucket_prefix: ${{ values.bucketPrefix }}
+  path: ${{ values.s3Path }}
+  iam_role_name: ${{ values.iamRoleName }}
+  file_format: ${{ values.fileFormat }}
+  schema:
+    name: ${{ values.schemaName }}
+  table:
+    name: ${{ values.tableName }}
+  stage:
+    name: ${{ values.stageName }}
+  pipe:
+    name: ${{ values.pipeName }}
+{% endif %}
