@@ -73,6 +73,12 @@ variable "comment" {
   default     = null
 }
 
+variable "iam_propagation_delay" {
+  description = "How long to wait after writing the IAM trust policy before creating the pipe, so the cross-account role is assumable. See time_sleep.iam_propagation in main.tf."
+  type        = string
+  default     = "60s"
+}
+
 variable "database_role_fqn" {
   description = "Database role to grant read access on the ingest objects. Null skips the grants."
   type        = string
