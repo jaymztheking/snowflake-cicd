@@ -165,7 +165,7 @@ Then create a role Terraform assumes, trusting only this repo:
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
       "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
-      "StringLike": { "token.actions.githubusercontent.com:sub": "repo:<owner>/snowflake-cicd:*" }
+      "StringLike": { "token.actions.githubusercontent.com:sub": "repo:<owner>@<owner-id>/snowflake-cicd@<repo-id>:*" }
     }
   }]
 }
@@ -183,6 +183,19 @@ aws s3api put-public-access-block --bucket <your-state-bucket> \
 ```
 
 Versioning matters: it's your undo button if a state write goes wrong.
+
+GitHub now issues OIDC subjects containing **immutable numeric IDs**, not just names —
+`repo:owner@648425/snowflake-cicd@1338611526:pull_request`, not
+`repo:owner/snowflake-cicd:pull_request`. A trust policy written against the old
+name-only format silently fails to match, and `configure-aws-credentials` reports only
+`Not authorized to perform sts:AssumeRoleWithWebIdentity`. Get your IDs with:
+
+```bash
+gh api repos/<owner>/snowflake-cicd --jq '{repo_id: .id, owner_id: .owner.id}'
+```
+
+If a run still fails to assume the role, CloudTrail's `AssumeRoleWithWebIdentity` event
+shows the exact `sub` GitHub sent, which is the fastest way to see what to match.
 
 Attach a permissions policy allowing the role to manage the resources this repo creates:
 `s3:CreateBucket`, `s3:DeleteBucket`, `s3:Get*`/`s3:Put*` on bucket configuration and
