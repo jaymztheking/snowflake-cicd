@@ -97,8 +97,15 @@ provisioned.
 ID *after* the storage integration exists, but the integration needs the IAM role ARN up
 front — a circular dependency. `modules/snowpipe/main.tf` breaks it by building the role
 ARN as a string from the account ID rather than referencing `aws_iam_role`, so the trust
-policy can depend on the integration without a cycle. Snowflake doesn't verify the role
-until the stage is first used, by which point the role exists.
+policy can depend on the integration without a cycle.
+
+The cost of that trick is that nothing in the Snowflake chain depends on the IAM role, so
+Terraform builds them in parallel. `CREATE STAGE` doesn't validate credentials, but
+`CREATE PIPE` with `AUTO_INGEST` does — it assumes the role — and IAM is eventually
+consistent, so a trust policy written seconds earlier isn't usable yet. Without a guard
+the pipe fails with `003167 (42601): Error assuming AWS_ROLE`. `time_sleep.iam_propagation`
+restores the ordering and waits out propagation; tune it with `iam_propagation_delay`
+(default `60s`).
 
 **Preview resources.** `snowflake_pipe` and `snowflake_table` are still preview features
 in the Snowflake provider and are opted into by name in `terraform/providers.tf`. The

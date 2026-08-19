@@ -12,8 +12,11 @@ locals {
   # storage integration does not depend on the role. The role's trust policy depends on
   # the integration (it needs the ARN and external ID Snowflake generates), and without
   # this indirection that would be a dependency cycle. Snowflake does not verify the role
-  # when the integration is created — it is checked on first stage use, by which point
-  # aws_iam_role exists.
+  # when the integration is created.
+  #
+  # The cost of breaking the cycle this way is that nothing in the Snowflake chain
+  # depends on the IAM role, so Terraform is free to build them in parallel. See
+  # time_sleep.iam_propagation below, which restores the ordering the pipe needs.
   iam_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.iam_role_name}"
 }
 
@@ -105,6 +108,21 @@ resource "aws_iam_role_policy" "s3_read" {
   })
 }
 
+# Creating the pipe is the first operation that makes Snowflake actually assume the
+# role above (CREATE PIPE with AUTO_INGEST validates the stage's credentials; CREATE
+# STAGE does not). IAM is eventually consistent, so a trust policy written seconds
+# earlier is not yet usable and the pipe fails with:
+#
+#   003167 (42601): Error assuming AWS_ROLE: ... is not authorized to perform:
+#   sts:AssumeRole on resource: .../SNOWFLAKE_<NAME>_ROLE
+#
+# Nothing in the Snowflake resource chain otherwise depends on the IAM role, so without
+# this the pipe and the role are built in parallel and the race is near-guaranteed.
+resource "time_sleep" "iam_propagation" {
+  depends_on      = [aws_iam_role_policy.s3_read]
+  create_duration = var.iam_propagation_delay
+}
+
 # ---------------------------------------------------------------------------
 # Snowflake ingest objects
 # ---------------------------------------------------------------------------
@@ -158,6 +176,8 @@ resource "snowflake_stage_external_s3" "this" {
 }
 
 resource "snowflake_pipe" "this" {
+  depends_on = [time_sleep.iam_propagation]
+
   database = var.database_name
   schema   = snowflake_schema.this.name
   name     = var.pipe_name
