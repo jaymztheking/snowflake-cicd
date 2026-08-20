@@ -8,7 +8,9 @@ locals {
 
   s3_url = "s3://${local.bucket_name}/${local.path_prefix}"
 
-  grants_enabled = var.database_role_fqn != null ? 1 : 0
+  # Must not be derived from database_role_fqn: that is a module output which is unknown
+  # at plan time on a fresh apply, and Terraform refuses a module count it cannot resolve.
+  grants_enabled = var.create_grants ? 1 : 0
 }
 
 # ---------------------------------------------------------------------------
