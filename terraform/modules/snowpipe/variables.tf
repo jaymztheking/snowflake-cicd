@@ -86,9 +86,15 @@ variable "iam_propagation_delay" {
 }
 
 variable "database_role_fqn" {
-  description = "Database role to grant read access on the ingest objects. Null skips the grants."
+  description = "Database role to grant read access on the ingest objects. Required when create_grants is true."
   type        = string
   default     = null
+}
+
+variable "create_grants" {
+  description = "Whether to grant the database role read access on the ingest objects. Must be statically known at plan time -- it cannot be derived from database_role_fqn, since that is typically an unresolved module output on a fresh apply and Terraform rejects an unknown module count."
+  type        = bool
+  default     = true
 }
 
 variable "tags" {
