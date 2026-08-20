@@ -8,251 +8,135 @@ locals {
 
   s3_url = "s3://${local.bucket_name}/${local.path_prefix}"
 
-  # The IAM role ARN is built as a string rather than read off aws_iam_role, so the
-  # storage integration does not depend on the role. The role's trust policy depends on
-  # the integration (it needs the ARN and external ID Snowflake generates), and without
-  # this indirection that would be a dependency cycle. Snowflake does not verify the role
-  # when the integration is created.
-  #
-  # The cost of breaking the cycle this way is that nothing in the Snowflake chain
-  # depends on the IAM role, so Terraform is free to build them in parallel. See
-  # time_sleep.iam_propagation below, which restores the ordering the pipe needs.
-  iam_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.iam_role_name}"
+  grants_enabled = var.database_role_fqn != null ? 1 : 0
 }
 
 # ---------------------------------------------------------------------------
-# S3 landing bucket
+# AWS: landing bucket
 # ---------------------------------------------------------------------------
 
-resource "aws_s3_bucket" "landing" {
-  bucket = local.bucket_name
-  tags   = var.tags
+module "bucket" {
+  source = "../s3_bucket"
 
-  # Without this, destroying a request whose bucket still holds objects fails with
-  # BucketNotEmpty. Note the value is read from state at destroy time, so it must be
-  # applied before the destroy, not alongside it.
+  name          = local.bucket_name
   force_destroy = var.force_destroy
-}
-
-resource "aws_s3_bucket_public_access_block" "landing" {
-  bucket = aws_s3_bucket.landing.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "landing" {
-  bucket = aws_s3_bucket.landing.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
+  tags          = var.tags
 }
 
 # ---------------------------------------------------------------------------
-# Snowflake storage integration + the IAM role it assumes
-# ---------------------------------------------------------------------------
-
-resource "snowflake_storage_integration_aws" "this" {
-  name                      = "${var.database_name}_${var.schema_name}_INT"
-  enabled                   = true
-  storage_provider          = "S3"
-  storage_aws_role_arn      = local.iam_role_arn
-  storage_allowed_locations = [local.s3_url]
-  comment                   = var.comment
-}
-
-resource "aws_iam_role" "snowflake" {
-  name = var.iam_role_name
-  tags = var.tags
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = "sts:AssumeRole"
-      Principal = {
-        AWS = snowflake_storage_integration_aws.this.describe_output[0].iam_user_arn
-      }
-      Condition = {
-        StringEquals = {
-          "sts:ExternalId" = snowflake_storage_integration_aws.this.describe_output[0].external_id
-        }
-      }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "s3_read" {
-  name = "${var.iam_role_name}-s3-read"
-  role = aws_iam_role.snowflake.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:GetObjectVersion"]
-        Resource = "${aws_s3_bucket.landing.arn}/${local.path_prefix}*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket", "s3:GetBucketLocation"]
-        Resource = aws_s3_bucket.landing.arn
-        Condition = {
-          StringLike = {
-            "s3:prefix" = ["${local.path_prefix}*"]
-          }
-        }
-      },
-    ]
-  })
-}
-
-# Creating the pipe is the first operation that makes Snowflake actually assume the
-# role above (CREATE PIPE with AUTO_INGEST validates the stage's credentials; CREATE
-# STAGE does not). IAM is eventually consistent, so a trust policy written seconds
-# earlier is not yet usable and the pipe fails with:
+# The S3 <-> Snowflake trust relationship
 #
-#   003167 (42601): Error assuming AWS_ROLE: ... is not authorized to perform:
-#   sts:AssumeRole on resource: .../SNOWFLAKE_<NAME>_ROLE
-#
-# Nothing in the Snowflake resource chain otherwise depends on the IAM role, so without
-# this the pipe and the role are built in parallel and the race is near-guaranteed.
-resource "time_sleep" "iam_propagation" {
-  depends_on      = [aws_iam_role_policy.s3_read]
-  create_duration = var.iam_propagation_delay
+# Storage integration, IAM role, its read policy, and the IAM propagation wait all live in
+# one module because they are mutually entangled — see the cycle-break note in
+# modules/snowflake_s3_access/main.tf.
+# ---------------------------------------------------------------------------
+
+module "s3_access" {
+  source = "../snowflake_s3_access"
+
+  integration_name      = "${var.database_name}_${var.schema_name}_INT"
+  iam_role_name         = var.iam_role_name
+  aws_account_id        = data.aws_caller_identity.current.account_id
+  bucket_arn            = module.bucket.arn
+  s3_url                = local.s3_url
+  path_prefix           = local.path_prefix
+  iam_propagation_delay = var.iam_propagation_delay
+  comment               = var.comment
+  tags                  = var.tags
 }
 
 # ---------------------------------------------------------------------------
-# Snowflake ingest objects
+# Snowflake: ingest objects
 # ---------------------------------------------------------------------------
 
-resource "snowflake_schema" "this" {
-  database = var.database_name
-  name     = var.schema_name
-  comment  = var.comment
+module "schema" {
+  source = "../schema"
+
+  database_name = var.database_name
+  name          = var.schema_name
+  comment       = var.comment
 }
 
-resource "snowflake_table" "this" {
-  database = var.database_name
-  schema   = snowflake_schema.this.name
-  name     = var.table_name
-  comment  = var.comment
+module "table" {
+  source = "../table"
 
-  dynamic "column" {
-    for_each = var.table_columns
-
-    content {
-      name = column.value.name
-      type = column.value.type
-    }
-  }
+  database_name = var.database_name
+  schema_name   = module.schema.name
+  name          = var.table_name
+  columns       = var.table_columns
+  comment       = var.comment
 }
 
-resource "snowflake_stage_external_s3" "this" {
-  database            = var.database_name
-  schema              = snowflake_schema.this.name
+module "stage" {
+  source = "../stage_external_s3"
+
+  database_name       = var.database_name
+  schema_name         = module.schema.name
   name                = var.stage_name
   url                 = local.s3_url
-  storage_integration = snowflake_storage_integration_aws.this.name
+  storage_integration = module.s3_access.integration_name
+  file_format         = var.file_format
   comment             = var.comment
-
-  file_format {
-    dynamic "json" {
-      for_each = var.file_format == "JSON" ? [1] : []
-      content {}
-    }
-
-    dynamic "csv" {
-      for_each = var.file_format == "CSV" ? [1] : []
-      content {}
-    }
-
-    dynamic "parquet" {
-      for_each = var.file_format == "PARQUET" ? [1] : []
-      content {}
-    }
-  }
 }
 
-resource "snowflake_pipe" "this" {
-  depends_on = [time_sleep.iam_propagation]
+module "pipe" {
+  source = "../pipe"
 
-  database = var.database_name
-  schema   = snowflake_schema.this.name
-  name     = var.pipe_name
-  comment  = var.comment
+  # Waits out IAM propagation. CREATE PIPE with AUTO_INGEST is the first operation that
+  # assumes the IAM role, and nothing else in the Snowflake chain depends on it.
+  depends_on = [module.s3_access]
 
+  database_name  = var.database_name
+  schema_name    = module.schema.name
+  name           = var.pipe_name
   auto_ingest    = true
-  copy_statement = "COPY INTO ${snowflake_table.this.fully_qualified_name} FROM @${snowflake_stage_external_s3.this.fully_qualified_name}"
+  copy_statement = "COPY INTO ${module.table.fully_qualified_name} FROM @${module.stage.fully_qualified_name}"
+  comment        = var.comment
 
-  # Snowflake requires the pipe to be recreated when the referenced stage's cloud
-  # parameters change, otherwise the SQS notification channel goes stale.
-  # https://docs.snowflake.com/en/user-guide/data-load-snowpipe-manage#changing-the-cloud-parameters-of-the-referenced-stage
-  lifecycle {
-    replace_triggered_by = [
-      snowflake_stage_external_s3.this.url,
-      snowflake_stage_external_s3.this.storage_integration,
-    ]
-  }
+  stage_fingerprint = join("|", [module.stage.url, module.stage.storage_integration])
 }
 
 # ---------------------------------------------------------------------------
-# S3 -> Snowpipe event notification
+# AWS: the event notification that drives the pipe
 # ---------------------------------------------------------------------------
 
-# This resource is authoritative for the bucket's entire notification config, which
-# is safe here only because each request owns its own bucket.
-resource "aws_s3_bucket_notification" "pipe" {
-  bucket = aws_s3_bucket.landing.id
+module "notification" {
+  source = "../s3_event_notification"
 
-  queue {
-    queue_arn     = snowflake_pipe.this.notification_channel
-    events        = ["s3:ObjectCreated:*"]
-    filter_prefix = local.path_prefix != "" ? local.path_prefix : null
-  }
+  bucket_id     = module.bucket.id
+  queue_arn     = module.pipe.notification_channel
+  filter_prefix = local.path_prefix
 }
 
 # ---------------------------------------------------------------------------
 # Grants — let the request's database role actually read what was provisioned
 # ---------------------------------------------------------------------------
 
-resource "snowflake_grant_privileges_to_database_role" "schema_usage" {
-  count = var.database_role_fqn != null ? 1 : 0
+module "grant_schema_usage" {
+  source = "../database_role_grant"
+  count  = local.grants_enabled
 
   database_role_name = var.database_role_fqn
   privileges         = ["USAGE"]
-
-  on_schema {
-    schema_name = snowflake_schema.this.fully_qualified_name
-  }
+  schema_name        = module.schema.fully_qualified_name
 }
 
-resource "snowflake_grant_privileges_to_database_role" "stage_read" {
-  count = var.database_role_fqn != null ? 1 : 0
+module "grant_stage_read" {
+  source = "../database_role_grant"
+  count  = local.grants_enabled
 
   database_role_name = var.database_role_fqn
   privileges         = ["READ"]
-
-  on_schema_object {
-    object_type = "STAGE"
-    object_name = snowflake_stage_external_s3.this.fully_qualified_name
-  }
+  object_type        = "STAGE"
+  object_name        = module.stage.fully_qualified_name
 }
 
-resource "snowflake_grant_privileges_to_database_role" "table_read" {
-  count = var.database_role_fqn != null ? 1 : 0
+module "grant_table_read" {
+  source = "../database_role_grant"
+  count  = local.grants_enabled
 
   database_role_name = var.database_role_fqn
   privileges         = ["SELECT", "INSERT"]
-
-  on_schema_object {
-    object_type = "TABLE"
-    object_name = snowflake_table.this.fully_qualified_name
-  }
+  object_type        = "TABLE"
+  object_name        = module.table.fully_qualified_name
 }

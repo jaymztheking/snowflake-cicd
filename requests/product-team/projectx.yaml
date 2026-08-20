@@ -1,0 +1,46 @@
+team: product-team
+name: projectx
+
+database:
+  name: PROJECTX_DB
+  comment: "Product team - Project X database"
+
+warehouse:
+  name: PROJECTX_WH
+  size: XSMALL
+  auto_suspend: 60
+  auto_resume: true
+
+database_role:
+  name: PROJECTX_DB_ROLE
+  grants:
+    # "on" must stay quoted -- unquoted, YAML 1.1 parses it as boolean true, not the string "on".
+    - privilege: USAGE
+      "on": DATABASE
+    - privilege: CREATE SCHEMA
+      "on": DATABASE
+
+functional_role:
+  name: PROJECTX_FUNCTIONAL_ROLE
+  warehouse_usage: true
+
+# Optional. Omit this whole block for a request with no ingest path.
+snowpipe:
+  bucket_prefix: projectx-landing   # bucket becomes <prefix>-<aws account id>
+  path: raw/                        # key prefix Snowpipe watches; omit to watch the whole bucket
+  iam_role_name: SNOWFLAKE_PROJECTX_ROLE
+  file_format: JSON                 # JSON | CSV | PARQUET
+  schema:
+    name: RAW
+  table:
+    name: EVENTS
+    # columns is optional -- omitted, the table gets a single VARIANT column named RAW.
+    # columns:
+    #   - name: EVENT_ID
+    #     type: VARCHAR
+    #   - name: PAYLOAD
+    #     type: VARIANT
+  stage:
+    name: EVENTS_STAGE
+  pipe:
+    name: EVENTS_PIPE
